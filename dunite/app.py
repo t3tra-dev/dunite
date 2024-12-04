@@ -170,7 +170,12 @@ class Server:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
-    def run(self, host: str = "localhost", port: int = 8765, **kwargs: Any) -> None:
+    def run(
+        self,
+        host: str = "localhost",
+        port: int = 8765,
+        **kwargs: Any
+    ) -> None:
         """
         Run the server.
 
@@ -178,35 +183,50 @@ class Server:
         :param port: Port to bind to
         :param kwargs: Additional arguments for the WebSocket server
         """
-
         async def server_main() -> None:
             self._running = True
             self._loop = asyncio.get_running_loop()
 
+            def signal_handler():
+                if not self._running:
+                    return
+                self._running = False
+                asyncio.create_task(self._shutdown())
+
             # Set up signal handlers
             for sig in (signal.SIGINT, signal.SIGTERM):
-                self._loop.add_signal_handler(
-                    sig, lambda: asyncio.create_task(self._shutdown())
-                )
+                self._loop.add_signal_handler(sig, signal_handler)
 
             async def handle_client(websocket: WebSocketHandler) -> None:
                 await self._handle_client(websocket)
 
             try:
-                server = await serve(handle_client, host, port, **kwargs)
+                server = await serve(
+                    handle_client,
+                    host,
+                    port,
+                    logger=self.logger,
+                    **kwargs
+                )
                 self._ws_server = server
                 self.logger.info(f"Server running on ws://{host}:{port}")
 
-                # Run until shutdown
+                # Wait until shutdown is triggered
                 while self._running:
                     await asyncio.sleep(0.1)
 
             except Exception as e:
                 self.logger.error(f"Server error: {e}")
             finally:
+                if self._ws_server:
+                    self._ws_server.close()
+                    await self._ws_server.wait_closed()
                 await self._shutdown()
 
-        asyncio.run(server_main())
+        try:
+            asyncio.run(server_main())
+        except KeyboardInterrupt:
+            self.logger.info("Server stopped")
 
 
 # Type alias for event handlers

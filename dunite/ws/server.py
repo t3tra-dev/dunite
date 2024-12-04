@@ -10,7 +10,7 @@ import ssl
 from typing import Any, Awaitable, Callable, Optional
 
 from .exceptions import WebSocketError
-from .frames import CloseCode
+from .frames import CloseCode, Frame, Opcode, parse_frame
 from .http import Headers, build_response, parse_request, validate_handshake
 from .protocol import State, WebSocketProtocol
 from .utils import compute_accept_key
@@ -30,6 +30,7 @@ class WebSocketHandler:
         self.logger = logger
         self.protocol = WebSocketProtocol(logger=logger)
         self._closed = False
+        self._message_queue: asyncio.Queue[str] = asyncio.Queue()
 
     @property
     def closed(self) -> bool:
@@ -38,17 +39,59 @@ class WebSocketHandler:
     async def handle_connection(self) -> None:
         try:
             await self._handle_handshake()
+
+            # Start reader and writer tasks
+            reader_task = asyncio.create_task(self._reader_loop())
+            writer_task = asyncio.create_task(self._writer_loop())
+
+            # Wait for either task to complete
+            done, pending = await asyncio.wait(
+                [reader_task, writer_task], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Cancel remaining tasks
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+        except Exception as e:
+            self.logger.error(f"Connection error: {e}")
+        finally:
+            await self.close()
+
+    async def _reader_loop(self) -> None:
+        """Read incoming frames from the socket."""
+        try:
             while not self.closed:
                 data = await self.reader.read(65536)
                 if not data:
                     break
-                self.protocol.receive_data(data)
+                frame, _ = parse_frame(data)
+
+                if frame.opcode == Opcode.TEXT:
+                    message = frame.payload.decode("utf-8")
+                    await self._message_queue.put(message)
+                elif frame.opcode == Opcode.CLOSE:
+                    break
+        except Exception as e:
+            self.logger.error(f"Reader error: {e}")
+        finally:
+            await self.close()
+
+    async def _writer_loop(self) -> None:
+        """Write outgoing frames to the socket."""
+        try:
+            while not self.closed:
                 outgoing = self.protocol.get_outgoing_data()
                 if outgoing:
                     self.writer.write(outgoing)
                     await self.writer.drain()
+                await asyncio.sleep(0.01)
         except Exception as e:
-            self.logger.error(f"Connection error: {e}")
+            self.logger.error(f"Writer error: {e}")
         finally:
             await self.close()
 
@@ -78,36 +121,42 @@ class WebSocketHandler:
 
         self.protocol.state.transition(State.OPEN)
 
-    def send(self, data: str) -> None:
+    async def send(self, data: str) -> None:
         if self.closed:
             raise WebSocketError("Connection is closed")
-        message = data.encode("utf-8")
-        self.protocol.send_message(message)
-        outgoing = self.protocol.get_outgoing_data()
-        if outgoing:
-            self.writer.write(outgoing)
 
-    def recv(self, timeout: Optional[float] = None) -> str:
+        frame = Frame(fin=True, opcode=Opcode.TEXT, payload=data.encode("utf-8"))
+        self.writer.write(frame.serialize(mask=False))
+        await self.writer.drain()
+
+    async def recv(self, timeout: Optional[float] = None) -> str:
         if self.closed:
             raise WebSocketError("Connection is closed")
+
         try:
-            message = self.protocol.receive_message(timeout=timeout)
-            if isinstance(message, bytes):
-                return message.decode("utf-8")
+            if timeout is not None:
+                message = await asyncio.wait_for(
+                    self._message_queue.get(), timeout=timeout
+                )
+            else:
+                message = await self._message_queue.get()
             return message
+        except asyncio.TimeoutError:
+            raise WebSocketError("Receive timeout")
         except Exception as e:
             raise WebSocketError(f"Error receiving message: {e}")
 
     async def close(self, code: int = CloseCode.NORMAL) -> None:
         if self._closed:
             return
+
         self._closed = True
         try:
-            self.protocol.close(code)
-            outgoing = self.protocol.get_outgoing_data()
-            if outgoing:
-                self.writer.write(outgoing)
-                await self.writer.drain()
+            frame = Frame(
+                fin=True, opcode=Opcode.CLOSE, payload=bytes([code >> 8, code & 0xFF])
+            )
+            self.writer.write(frame.serialize(mask=False))
+            await self.writer.drain()
             self.writer.close()
             await self.writer.wait_closed()
         except Exception:
@@ -138,8 +187,11 @@ async def serve(
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         ws_handler = WebSocketHandler(reader, writer, logger)
+        connection_task = asyncio.create_task(ws_handler.handle_connection())
+        handler_task = asyncio.create_task(handler(ws_handler))
+
         try:
-            await handler(ws_handler)
+            await asyncio.gather(connection_task, handler_task)
         except Exception:
             if logger:
                 logger.exception("Error in connection handler")
