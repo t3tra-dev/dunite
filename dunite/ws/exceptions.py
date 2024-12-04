@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..exceptions import DuniteException
-
 __all__ = [
     "WebSocketError",
     "ConnectionError",
@@ -21,7 +19,7 @@ __all__ = [
 ]
 
 
-class WebSocketError(DuniteException):
+class WebSocketError(Exception):
     """Base exception for all WebSocket related errors."""
 
 
