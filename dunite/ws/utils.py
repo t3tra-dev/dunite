@@ -83,7 +83,7 @@ def apply_mask(data: BytesLike, mask: bytes) -> bytes:
 
     # For larger messages, use the struct module for better performance
     mask_int = struct.unpack("!I", mask)[0]
-    chunks = [data[i: i + 4] for i in range(0, data_len - data_len % 4, 4)]
+    chunks = [data[i : i + 4] for i in range(0, data_len - data_len % 4, 4)]
     result = bytearray()
 
     for chunk in chunks:

@@ -88,14 +88,15 @@ class ConnectionState:
             # Validate state transition
             if (
                 (
-                    current == State.CONNECTING and to_state not in {State.OPEN, State.CLOSED}
-                ) or (
-                    current == State.OPEN and to_state not in {State.CLOSING, State.CLOSED}
-                ) or (
-                    current == State.CLOSING and to_state != State.CLOSED
-                ) or (
-                    current == State.CLOSED
+                    current == State.CONNECTING
+                    and to_state not in {State.OPEN, State.CLOSED}
                 )
+                or (
+                    current == State.OPEN
+                    and to_state not in {State.CLOSING, State.CLOSED}
+                )
+                or (current == State.CLOSING and to_state != State.CLOSED)
+                or (current == State.CLOSED)
             ):
                 raise ValueError(
                     f"Invalid state transition: {current.name} -> {to_state.name}"

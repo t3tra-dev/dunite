@@ -31,9 +31,11 @@ class Headers(collections.abc.MutableMapping):
     :param headers: Initial headers data
     """
 
-    __slots__ = ('_dict', '_list')
+    __slots__ = ("_dict", "_list")
 
-    def __init__(self, headers: Optional[Union[Dict[str, str], List[Tuple[str, str]]]] = None) -> None:
+    def __init__(
+        self, headers: Optional[Union[Dict[str, str], List[Tuple[str, str]]]] = None
+    ) -> None:
         self._dict: Dict[str, List[str]] = {}  # lowercase_name -> [values]
         self._list: List[Tuple[str, str]] = []  # [(name, value)] with original case
 
@@ -312,6 +314,7 @@ def validate_handshake(
     :raises HandshakeError: If headers are invalid
     :raises SecurityError: If security-related headers are invalid
     """
+
     def require_header(name: str) -> str:
         try:
             return headers[name]
@@ -348,6 +351,7 @@ def validate_handshake(
 
 
 # Helper functions
+
 
 def _is_valid_header_name(name: str) -> bool:
     """Check if a header name is valid according to RFC 7230."""

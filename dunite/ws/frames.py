@@ -141,7 +141,11 @@ class Frame:
 
         # First byte: FIN + RSV + Opcode
         first_byte = (
-            (0b10000000 if self.fin else 0) | (0b01000000 if self.rsv1 else 0) | (0b00100000 if self.rsv2 else 0) | (0b00010000 if self.rsv3 else 0) | self.opcode
+            (0b10000000 if self.fin else 0)
+            | (0b01000000 if self.rsv1 else 0)
+            | (0b00100000 if self.rsv2 else 0)
+            | (0b00010000 if self.rsv3 else 0)
+            | self.opcode
         )
         header_bytes.append(first_byte)
 
@@ -169,6 +173,7 @@ class Frame:
         # Masking key and payload
         if mask:
             import os
+
             mask_key = os.urandom(4)
             header_bytes.extend(mask_key)
             payload = apply_mask(self.payload, mask_key)
@@ -195,7 +200,9 @@ class Frame:
         )
 
 
-def parse_frame(data: Union[bytes, bytearray], *, max_size: Optional[int] = None) -> Tuple[Frame, int]:
+def parse_frame(
+    data: Union[bytes, bytearray], *, max_size: Optional[int] = None
+) -> Tuple[Frame, int]:
     """
     Parse a WebSocket frame from bytes.
 
@@ -233,23 +240,25 @@ def parse_frame(data: Union[bytes, bytearray], *, max_size: Optional[int] = None
     if payload_length == 126:
         if len(data) < pos + 2:
             raise FrameError("Frame too short for 2-byte payload length")
-        payload_length = struct.unpack("!H", data[pos:pos + 2])[0]
+        payload_length = struct.unpack("!H", data[pos : pos + 2])[0]
         pos += 2
     elif payload_length == 127:
         if len(data) < pos + 8:
             raise FrameError("Frame too short for 8-byte payload length")
-        payload_length = struct.unpack("!Q", data[pos:pos + 8])[0]
+        payload_length = struct.unpack("!Q", data[pos : pos + 8])[0]
         pos += 8
 
     if max_size is not None and payload_length > max_size:
-        raise PayloadError(f"Payload length {payload_length} exceeds maximum size {max_size}")
+        raise PayloadError(
+            f"Payload length {payload_length} exceeds maximum size {max_size}"
+        )
 
     # Handle mask
     mask_key = None
     if masked:
         if len(data) < pos + 4:
             raise FrameError("Frame too short for mask key")
-        mask_key = data[pos:pos + 4]
+        mask_key = data[pos : pos + 4]
         pos += 4
 
     # Check if we have the full payload
@@ -257,7 +266,7 @@ def parse_frame(data: Union[bytes, bytearray], *, max_size: Optional[int] = None
         raise FrameError("Frame too short for payload")
 
     # Extract payload
-    payload = data[pos:pos + payload_length]
+    payload = data[pos : pos + payload_length]
     if masked:
         payload = apply_mask(payload, mask_key)
 
