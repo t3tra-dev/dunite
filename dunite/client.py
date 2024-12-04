@@ -71,7 +71,7 @@ class Client:
             raise ClientError("Connection is closed", self.id)
 
         try:
-            self.handler.send(json.dumps(message))
+            await self.handler.send(json.dumps(message))
         except Exception as e:
             raise ClientError(f"Failed to send message: {e}", self.id) from e
 
@@ -87,7 +87,7 @@ class Client:
             raise ClientError("Connection is closed", self.id)
 
         try:
-            data = self.handler.recv()
+            data = await self.handler.recv()
             if isinstance(data, bytes):
                 data = data.decode("utf-8")
             message = json.loads(data)
@@ -117,14 +117,17 @@ class Client:
             raise ProtocolError("Message must have a purpose", message)
 
         # Type the message based on its purpose
-        if purpose == MessagePurpose.COMMAND_RESPONSE:
-            return CommandResponseMessage(**message)  # type: ignore
-        elif purpose == MessagePurpose.EVENT:
-            return EventMessage(**message)  # type: ignore
-        elif purpose == MessagePurpose.ERROR:
-            return ErrorMessage(**message)  # type: ignore
-        else:
-            raise ProtocolError(f"Unknown message purpose: {purpose}", message)
+        try:
+            if purpose == MessagePurpose.COMMAND_RESPONSE:
+                return CommandResponseMessage(**message)  # type: ignore
+            elif purpose == MessagePurpose.EVENT:
+                return EventMessage(**message)  # type: ignore
+            elif purpose == MessagePurpose.ERROR:
+                return ErrorMessage(**message)  # type: ignore
+            else:
+                raise ProtocolError(f"Unknown message purpose: {purpose}", message)
+        except Exception as e:
+            raise ProtocolError(f"Invalid message structure: {e}", message) from e
 
     async def run_command(self, command: Command) -> CommandResponse:
         """
@@ -240,7 +243,7 @@ class Client:
 
         self._closed = True
         try:
-            self.handler.close(CloseCode.NORMAL)
+            await self.handler.close(CloseCode.NORMAL)
         except Exception:
             self.logger.exception("Error closing client connection")
 

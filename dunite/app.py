@@ -170,12 +170,7 @@ class Server:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
-    def run(
-        self,
-        host: str = "localhost",
-        port: int = 8765,
-        **kwargs: Any
-    ) -> None:
+    def run(self, host: str = "localhost", port: int = 8765, **kwargs: Any) -> None:
         """
         Run the server.
 
@@ -183,6 +178,7 @@ class Server:
         :param port: Port to bind to
         :param kwargs: Additional arguments for the WebSocket server
         """
+
         async def server_main() -> None:
             self._running = True
             self._loop = asyncio.get_running_loop()
@@ -202,11 +198,7 @@ class Server:
 
             try:
                 server = await serve(
-                    handle_client,
-                    host,
-                    port,
-                    logger=self.logger,
-                    **kwargs
+                    handle_client, host, port, logger=self.logger, **kwargs
                 )
                 self._ws_server = server
                 self.logger.info(f"Server running on ws://{host}:{port}")
