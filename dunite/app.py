@@ -39,6 +39,7 @@ class Server:
         self._running = False
         self._tasks: Set[asyncio.Task] = set()
         self._ws_server = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def on(
         self, event_type: str | EventType, *, auto_subscribe: bool = True
@@ -66,7 +67,7 @@ class Server:
         def decorator(handler: EventHandler) -> EventHandler:
             handlers = self._event_handlers.setdefault(event_type, set())
             handlers.add(handler)
-            handler._auto_subscribe = auto_subscribe
+            handler._auto_subscribe = auto_subscribe  # type: ignore
             return handler
 
         return decorator
@@ -169,13 +170,6 @@ class Server:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
-    def _handle_signals(self) -> None:
-        """Set up signal handlers for graceful shutdown."""
-        loop = asyncio.get_event_loop()
-
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(self._shutdown()))
-
     def run(self, host: str = "localhost", port: int = 8765, **kwargs: Any) -> None:
         """
         Run the server.
@@ -185,21 +179,22 @@ class Server:
         :param kwargs: Additional arguments for the WebSocket server
         """
 
-        async def _run() -> None:
+        async def server_main() -> None:
             self._running = True
-            self._handle_signals()
+            self._loop = asyncio.get_running_loop()
 
-            try:
-
-                def ws_handler(handler: WebSocketHandler) -> None:
-                    task = asyncio.create_task(self._handle_client(handler))
-                    self._tasks.add(task)
-                    task.add_done_callback(self._tasks.discard)
-
-                self._ws_server = serve(
-                    ws_handler, host=host, port=port, logger=self.logger, **kwargs
+            # Set up signal handlers
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                self._loop.add_signal_handler(
+                    sig, lambda: asyncio.create_task(self._shutdown())
                 )
 
+            async def handle_client(websocket: WebSocketHandler) -> None:
+                await self._handle_client(websocket)
+
+            try:
+                server = await serve(handle_client, host, port, **kwargs)
+                self._ws_server = server
                 self.logger.info(f"Server running on ws://{host}:{port}")
 
                 # Run until shutdown
@@ -211,10 +206,7 @@ class Server:
             finally:
                 await self._shutdown()
 
-        try:
-            asyncio.run(_run())
-        except KeyboardInterrupt:
-            self.logger.info("Server stopped")
+        asyncio.run(server_main())
 
 
 # Type alias for event handlers
